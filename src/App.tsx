@@ -1,21 +1,6 @@
-import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
-import {
-  Briefcase,
-  Building2,
-  Globe,
-  MapPin,
-  Phone,
-} from 'lucide-react';
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardFooter,
-  CardHeader,
-  CardTitle,
-} from './components/ui/card';
-import { Button } from './components/ui/button';
+import { ChevronLeft, ChevronRight } from 'lucide-react';
  
 
 type Business = {
@@ -30,6 +15,7 @@ type Business = {
  
 
 const STORAGE_KEY = 'cold-calling-display:current-index';
+const INDUSTRY_STORAGE_KEY = 'cold-calling-display:selected-industry';
 
 const clamp = (value: number, min: number, max: number) =>
   Math.min(Math.max(value, min), max);
@@ -106,7 +92,39 @@ function App() {
   }, []);
 
   const { businesses, errors } = useMemo(() => parseBusinesses(csvText), [csvText]);
-  const total = businesses.length;
+  
+  const [selectedIndustry, setSelectedIndustry] = useState<string>(() => {
+    // First try to get from URL
+    const params = new URLSearchParams(window.location.search);
+    const urlIndustry = params.get('industry');
+    if (urlIndustry) return urlIndustry;
+    
+    // Fall back to localStorage
+    try {
+      return window.localStorage.getItem(INDUSTRY_STORAGE_KEY) || '';
+    } catch {
+      return '';
+    }
+  });
+
+  // Filter businesses by selected industry
+  const filteredBusinesses = useMemo(() => {
+    if (!selectedIndustry) return businesses;
+    return businesses.filter(b => b.industry === selectedIndustry);
+  }, [businesses, selectedIndustry]);
+
+  // Get unique industries for the dropdown
+  const industries = useMemo(() => {
+    const uniqueIndustries = new Set<string>();
+    businesses.forEach(b => {
+      if (b.industry && b.industry.trim()) {
+        uniqueIndustries.add(b.industry);
+      }
+    });
+    return Array.from(uniqueIndustries).sort();
+  }, [businesses]);
+
+  const total = filteredBusinesses.length;
   const initializedRef = useRef(false);
 
   const [currentIndex, setCurrentIndex] = useState<number>(() =>
@@ -120,10 +138,21 @@ function App() {
     if (!hasInitializedRef.current) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, String(currentIndex));
+      window.localStorage.setItem(INDUSTRY_STORAGE_KEY, selectedIndustry);
+      
+      // Update URL with industry filter
+      const params = new URLSearchParams(window.location.search);
+      if (selectedIndustry) {
+        params.set('industry', selectedIndustry);
+      } else {
+        params.delete('industry');
+      }
+      const newUrl = `${window.location.pathname}${params.toString() ? '?' + params.toString() : ''}`;
+      window.history.replaceState({}, '', newUrl);
     } catch {
       // Ignore write errors (e.g. storage disabled)
     }
-  }, [currentIndex]);
+  }, [currentIndex, selectedIndustry]);
 
   // After data loads, restore last position once
   useEffect(() => {
@@ -134,19 +163,16 @@ function App() {
     }
   }, [total]);
 
-  const currentBusiness = businesses[currentIndex];
-  const showNavigation = total > 0;
-
-  const [isEditingIndex, setIsEditingIndex] = useState(false);
-  const [inputIndex, setInputIndex] = useState<string>('');
-
-  const commitIndex = () => {
-    const parsed = parseInt(inputIndex, 10);
-    if (Number.isFinite(parsed)) {
-      setCurrentIndex(clamp(parsed - 1, 0, total - 1));
+  // Reset index when industry filter changes
+  useEffect(() => {
+    if (hasInitializedRef.current) {
+      setCurrentIndex(0);
     }
-    setIsEditingIndex(false);
-  };
+  }, [selectedIndustry]);
+
+  const currentBusiness = filteredBusinesses[currentIndex];
+  const canGoBack = currentIndex > 0;
+  const canGoNext = currentIndex < total - 1;
 
   const hasErrors = errors && errors.length > 0;
   const errorMessage = hasErrors
@@ -154,166 +180,182 @@ function App() {
         errors.length > 1 ? 's' : ''
       }. Showing available data.`
     : null;
+  
+  const [jumpInput, setJumpInput] = useState('');
+  const [showJumpInput, setShowJumpInput] = useState(false);
+
+  const handleJump = () => {
+    const num = parseInt(jumpInput, 10);
+    if (num >= 1 && num <= total) {
+      setCurrentIndex(num - 1);
+      setShowJumpInput(false);
+      setJumpInput('');
+    }
+  };
 
   return (
-    <div className="flex min-h-screen items-center justify-center p-6">
-      <Card className="w-full max-w-2xl shadow-lg">
-        <CardHeader>
-          <CardDescription className="text-xs uppercase tracking-[0.2em] text-indigo-600">
-            Cold Calling Dashboard
-          </CardDescription>
-          <CardTitle>
-            {currentBusiness?.business_name || 'No business available'}
-          </CardTitle>
-          <CardDescription>
-            {showNavigation ? (
-              isEditingIndex ? (
-                <div className="flex items-center gap-2">
-                  <input
-                    type="number"
-                    min={1}
-                    max={total}
-                    value={inputIndex}
-                    onChange={(e) => setInputIndex(e.target.value)}
-                    onBlur={commitIndex}
-                    onKeyDown={(e) => {
-                      if (e.key === 'Enter') commitIndex();
-                      if (e.key === 'Escape') setIsEditingIndex(false);
-                    }}
-                    className="w-24 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
-                    aria-label="Set business position"
-                    autoFocus
-                  />
-                  <Button variant="outline" onClick={commitIndex}>
-                    Go
-                  </Button>
-                  <Button variant="outline" onClick={() => setIsEditingIndex(false)}>
-                    Cancel
-                  </Button>
-                  <span className="text-xs text-slate-500">of {total}</span>
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  className="text-slate-700 underline underline-offset-2 hover:text-slate-900"
-                  onClick={() => {
-                    setIsEditingIndex(true);
-                    setInputIndex(String(currentIndex + 1));
-                  }}
-                  aria-label="Edit business position"
+    <div className="flex min-h-screen bg-gray-50">
+      <div className="flex w-full items-stretch">
+        {/* Left Navigation Arrow */}
+        <button
+          type="button"
+          onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
+          disabled={!canGoBack}
+          className="flex w-24 flex-shrink-0 items-center justify-center transition-colors duration-200 disabled:opacity-30 hover:enabled:bg-gray-200"
+          aria-label="Previous business"
+        >
+          <ChevronLeft className="h-12 w-12 text-gray-600" />
+        </button>
+
+        {/* Main Card */}
+        <div className="flex flex-1 items-center justify-center p-8">
+          {total > 0 && currentBusiness ? (
+            <div className="flex w-full max-w-5xl flex-col gap-8 rounded-lg border border-gray-200 bg-white p-12 shadow-sm">
+              {/* Industry Filter */}
+              <div className="flex items-center gap-3 border-b border-gray-200 pb-4">
+                <label htmlFor="industry-filter" className="text-sm font-medium text-gray-700">
+                  Filter by Industry:
+                </label>
+                <select
+                  id="industry-filter"
+                  value={selectedIndustry}
+                  onChange={(e) => setSelectedIndustry(e.target.value)}
+                  className="rounded border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 focus:border-gray-400 focus:outline-none"
                 >
-                  {`Business ${currentIndex + 1} of ${total}`}
-                </button>
-              )
-            ) : (
-              'No businesses loaded from the CSV data.'
-            )}
-          </CardDescription>
-        </CardHeader>
-
-        <CardContent className="space-y-4">
-
-          {errorMessage ? (
-            <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-              {errorMessage}
-            </div>
-          ) : null}
-
-          {currentBusiness ? (
-            <div className="space-y-3">
-              <InfoRow
-                icon={<Building2 className="h-4 w-4 text-indigo-600" />}
-                label="Company"
-                value={currentBusiness.company_name || '—'}
-              />
-              <InfoRow
-                icon={<Briefcase className="h-4 w-4 text-indigo-600" />}
-                label="Industry"
-                value={currentBusiness.industry || '—'}
-              />
-              <InfoRow
-                icon={<MapPin className="h-4 w-4 text-indigo-600" />}
-                label="City"
-                value={currentBusiness.city || '—'}
-              />
-              <InfoRow
-                icon={<Phone className="h-4 w-4 text-indigo-600" />}
-                label="Phone"
-                value={
-                  currentBusiness.phone_number
-                    ? formatPhoneNumber(currentBusiness.phone_number)
-                    : '—'
-                }
-              />
-              <div className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-                <div className="mt-1 rounded-md bg-indigo-100 p-2 text-indigo-700">
-                  <Globe className="h-4 w-4" />
-                </div>
-                <div className="flex flex-col gap-1">
-                  <span className="text-sm font-semibold text-slate-900">
-                    Website
+                  <option value="">All Industries</option>
+                  {industries.map((industry) => (
+                    <option key={industry} value={industry}>
+                      {industry}
+                    </option>
+                  ))}
+                </select>
+                {selectedIndustry && (
+                  <span className="text-sm text-gray-500">
+                    ({total} {total === 1 ? 'business' : 'businesses'})
                   </span>
-                  {currentBusiness.site_url ? (
-                    <a
-                      href={currentBusiness.site_url}
-                      target="_blank"
-                      rel="noreferrer"
-                      className="text-sm font-medium text-indigo-600 underline underline-offset-2"
-                    >
-                      {currentBusiness.site_url}
-                    </a>
+                )}
+              </div>
+
+              {/* Business Name as Header */}
+              <div className="border-b border-gray-200 pb-6">
+                <h1 className="text-4xl font-semibold text-gray-900">
+                  {currentBusiness.business_name || 'N/A'}
+                </h1>
+                <div className="mt-3 flex items-center gap-2">
+                  {showJumpInput ? (
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="number"
+                        min="1"
+                        max={total}
+                        value={jumpInput}
+                        onChange={(e) => setJumpInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') handleJump();
+                          if (e.key === 'Escape') {
+                            setShowJumpInput(false);
+                            setJumpInput('');
+                          }
+                        }}
+                        className="w-24 rounded border border-gray-300 bg-white px-3 py-2 text-base text-gray-900 focus:border-gray-400 focus:outline-none"
+                        placeholder="1"
+                        autoFocus
+                      />
+                      <button
+                        onClick={handleJump}
+                        className="rounded bg-gray-900 px-4 py-2 text-base font-medium text-white hover:bg-gray-700"
+                      >
+                        Go
+                      </button>
+                      <button
+                        onClick={() => {
+                          setShowJumpInput(false);
+                          setJumpInput('');
+                        }}
+                        className="rounded bg-white px-4 py-2 text-base font-medium text-gray-700 hover:bg-gray-100"
+                      >
+                        Cancel
+                      </button>
+                    </div>
                   ) : (
-                    <span className="text-sm text-slate-600">—</span>
+                    <button
+                      onClick={() => setShowJumpInput(true)}
+                      className="text-base text-gray-500 hover:text-gray-700"
+                    >
+                      Entry {currentIndex + 1} of {total}
+                    </button>
                   )}
                 </div>
               </div>
+
+              {/* Business Data Grid */}
+              <div className="grid grid-cols-2 gap-6">
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-gray-500">Company</span>
+                  <span className="text-xl text-gray-900">
+                    {currentBusiness.company_name || '—'}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-gray-500">Industry</span>
+                  <span className="text-xl text-gray-900">
+                    {currentBusiness.industry || '—'}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-gray-500">City</span>
+                  <span className="text-xl text-gray-900">
+                    {currentBusiness.city || '—'}
+                  </span>
+                </div>
+                <div className="flex flex-col gap-2">
+                  <span className="text-sm font-medium text-gray-500">Phone</span>
+                  <span className="text-xl text-gray-900">
+                    {currentBusiness.phone_number
+                      ? formatPhoneNumber(currentBusiness.phone_number)
+                      : '—'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Website */}
+              {currentBusiness.site_url && (
+                <div className="flex flex-col gap-2 border-t border-gray-200 pt-6">
+                  <span className="text-sm font-medium text-gray-500">Website</span>
+                  <a
+                    href={currentBusiness.site_url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-xl text-blue-600 underline hover:text-blue-800"
+                  >
+                    {currentBusiness.site_url}
+                  </a>
+                </div>
+              )}
+
+              {errorMessage && (
+                <div className="rounded bg-amber-50 px-4 py-3 text-base text-amber-800">
+                  {errorMessage}
+                </div>
+              )}
             </div>
           ) : (
-            <div className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
-              No business data to display.
+            <div className="flex w-full max-w-5xl flex-col items-center justify-center rounded-lg border border-gray-200 bg-white p-12 shadow-sm">
+              <p className="text-base text-gray-500">No business data to display.</p>
             </div>
           )}
+        </div>
 
-          
-        </CardContent>
-
-        <CardFooter className="flex items-center justify-between gap-3">
-          <Button
-            variant="outline"
-            disabled={!showNavigation || currentIndex === 0}
-            onClick={() => setCurrentIndex((index) => clamp(index - 1, 0, total - 1))}
-          >
-            Previous
-          </Button>
-          <Button
-            disabled={!showNavigation || currentIndex >= total - 1}
-            onClick={() =>
-              setCurrentIndex((index) => clamp(index + 1, 0, total - 1))
-            }
-          >
-            Next
-          </Button>
-        </CardFooter>
-      </Card>
-    </div>
-  );
-}
-
-type InfoRowProps = {
-  icon: ReactNode;
-  label: string;
-  value: string;
-};
-
-function InfoRow({ icon, label, value }: InfoRowProps) {
-  return (
-    <div className="flex items-start gap-3 rounded-xl border border-slate-100 bg-slate-50 px-3 py-3">
-      <div className="mt-1 rounded-md bg-indigo-100 p-2 text-indigo-700">
-        {icon}
-      </div>
-      <div className="flex flex-col gap-1">
-        <span className="text-sm font-semibold text-slate-900">{label}</span>
-        <span className="text-sm text-slate-700">{value}</span>
+        {/* Right Navigation Arrow */}
+        <button
+          type="button"
+          onClick={() => setCurrentIndex(Math.min(total - 1, currentIndex + 1))}
+          disabled={!canGoNext}
+          className="flex w-24 flex-shrink-0 items-center justify-center transition-colors duration-200 disabled:opacity-30 hover:enabled:bg-gray-200"
+          aria-label="Next business"
+        >
+          <ChevronRight className="h-12 w-12 text-gray-600" />
+        </button>
       </div>
     </div>
   );
