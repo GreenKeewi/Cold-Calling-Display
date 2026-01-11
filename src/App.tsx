@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useMemo, useState } from 'react';
+import { type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import Papa from 'papaparse';
 import {
   Briefcase,
@@ -16,6 +16,7 @@ import {
   CardTitle,
 } from './components/ui/card';
 import { Button } from './components/ui/button';
+ 
 
 type Business = {
   site_url: string;
@@ -26,12 +27,7 @@ type Business = {
   phone_number: string;
 };
 
-const CSV_DATA = `site_url,business_name,industry,company_name,city,phone_number
-https://ontariolitigationlawyers.com/toronto-civil-litigation/,Toronto Civil Litigation Lawyers - Powell Litigation,Law Firm,Toronto Civil Litigation Lawyers - Powell Litigation,"Toronto, ON",(437) 222-2234
-https://acmeplumbing.com,Acme Plumbing,Home Services,Acme Plumbing Co.,"Austin, TX",(512) 555-1212
-https://designhub.ca,Design Hub,Creative Agency,Design Hub Inc.,"Vancouver, BC",(604) 123-4567
-https://greenfarms.org,Green Farms Market,Food & Beverage,Green Farms Market,"Denver, CO",(303) 555-9876
-`;
+ 
 
 const STORAGE_KEY = 'cold-calling-display:current-index';
 
@@ -46,8 +42,8 @@ const formatPhoneNumber = (phone: string) => {
   return phone;
 };
 
-const parseBusinesses = () => {
-  const parsed = Papa.parse<Business>(CSV_DATA.trim(), {
+const parseBusinesses = (csvText: string) => {
+  const parsed = Papa.parse<Business>(csvText.trim(), {
     header: true,
     skipEmptyLines: true,
   });
@@ -86,14 +82,42 @@ const getStoredIndex = (total: number) => {
 };
 
 function App() {
-  const { businesses, errors } = useMemo(() => parseBusinesses(), []);
+  const [csvText, setCsvText] = useState<string>('');
+
+  useEffect(() => {
+    let cancelled = false;
+    // Auto-load CSV from public/data.csv
+    (async () => {
+      try {
+        const res = await fetch('/data.csv');
+        if (res.ok) {
+          const text = await res.text();
+          if (!cancelled && text && text.trim().length > 0) {
+            setCsvText(text);
+          }
+        }
+      } catch {
+        // ignore fetch errors
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const { businesses, errors } = useMemo(() => parseBusinesses(csvText), [csvText]);
   const total = businesses.length;
+  const initializedRef = useRef(false);
 
   const [currentIndex, setCurrentIndex] = useState<number>(() =>
     getStoredIndex(total),
   );
 
+  const hasInitializedRef = useRef(false);
+
   useEffect(() => {
+    // Persist only after we've rehydrated from storage to avoid clobbering
+    if (!hasInitializedRef.current) return;
     try {
       window.localStorage.setItem(STORAGE_KEY, String(currentIndex));
     } catch {
@@ -101,8 +125,28 @@ function App() {
     }
   }, [currentIndex]);
 
+  // After data loads, restore last position once
+  useEffect(() => {
+    if (!initializedRef.current && total > 0) {
+      initializedRef.current = true;
+      hasInitializedRef.current = true;
+      setCurrentIndex(getStoredIndex(total));
+    }
+  }, [total]);
+
   const currentBusiness = businesses[currentIndex];
   const showNavigation = total > 0;
+
+  const [isEditingIndex, setIsEditingIndex] = useState(false);
+  const [inputIndex, setInputIndex] = useState<string>('');
+
+  const commitIndex = () => {
+    const parsed = parseInt(inputIndex, 10);
+    if (Number.isFinite(parsed)) {
+      setCurrentIndex(clamp(parsed - 1, 0, total - 1));
+    }
+    setIsEditingIndex(false);
+  };
 
   const hasErrors = errors && errors.length > 0;
   const errorMessage = hasErrors
@@ -122,13 +166,53 @@ function App() {
             {currentBusiness?.business_name || 'No business available'}
           </CardTitle>
           <CardDescription>
-            {showNavigation
-              ? `Business ${currentIndex + 1} of ${total}`
-              : 'No businesses loaded from the CSV data.'}
+            {showNavigation ? (
+              isEditingIndex ? (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={total}
+                    value={inputIndex}
+                    onChange={(e) => setInputIndex(e.target.value)}
+                    onBlur={commitIndex}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') commitIndex();
+                      if (e.key === 'Escape') setIsEditingIndex(false);
+                    }}
+                    className="w-24 rounded-md border border-slate-300 bg-white px-2 py-1 text-sm"
+                    aria-label="Set business position"
+                    autoFocus
+                  />
+                  <Button variant="outline" onClick={commitIndex}>
+                    Go
+                  </Button>
+                  <Button variant="outline" onClick={() => setIsEditingIndex(false)}>
+                    Cancel
+                  </Button>
+                  <span className="text-xs text-slate-500">of {total}</span>
+                </div>
+              ) : (
+                <button
+                  type="button"
+                  className="text-slate-700 underline underline-offset-2 hover:text-slate-900"
+                  onClick={() => {
+                    setIsEditingIndex(true);
+                    setInputIndex(String(currentIndex + 1));
+                  }}
+                  aria-label="Edit business position"
+                >
+                  {`Business ${currentIndex + 1} of ${total}`}
+                </button>
+              )
+            ) : (
+              'No businesses loaded from the CSV data.'
+            )}
           </CardDescription>
         </CardHeader>
 
         <CardContent className="space-y-4">
+
           {errorMessage ? (
             <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               {errorMessage}
@@ -189,6 +273,8 @@ function App() {
               No business data to display.
             </div>
           )}
+
+          
         </CardContent>
 
         <CardFooter className="flex items-center justify-between gap-3">

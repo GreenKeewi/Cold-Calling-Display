@@ -4,8 +4,6 @@ This template provides a minimal setup to get React working in Vite with HMR and
 
 Currently, two official plugins are available:
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Babel](https://babeljs.io/) (or [oxc](https://oxc.rs) when used in [rolldown-vite](https://vite.dev/guide/rolldown)) for Fast Refresh
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/) for Fast Refresh
 
 ## React Compiler
 
@@ -71,3 +69,16 @@ export default defineConfig([
   },
 ])
 ```
+## CSV Usage
+
+- Place your CSV file at [public/data.csv](public/data.csv). The app loads it automatically.
+- Expected headers: **site_url**, **business_name**, **industry**, **company_name**, **city**, **phone_number**.
+
+### Run Locally
+
+```bash
+npm install
+npm run dev
+```
+
+Open the dev server URL and add your file to [public/data.csv](public/data.csv).
