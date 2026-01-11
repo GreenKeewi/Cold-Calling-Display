@@ -201,14 +201,14 @@ function App() {
           type="button"
           onClick={() => setCurrentIndex(Math.max(0, currentIndex - 1))}
           disabled={!canGoBack}
-          className="flex w-24 flex-shrink-0 items-center justify-center transition-colors duration-200 disabled:opacity-30 hover:enabled:bg-gray-200"
+          className="flex flex-1 items-center justify-center transition-colors duration-200 disabled:opacity-30 hover:enabled:bg-gray-200"
           aria-label="Previous business"
         >
           <ChevronLeft className="h-12 w-12 text-gray-600" />
         </button>
 
         {/* Main Card */}
-        <div className="flex flex-1 items-center justify-center p-8">
+        <div className="flex items-center justify-center p-8">
           {total > 0 && currentBusiness ? (
             <div className="flex w-full max-w-5xl flex-col gap-8 rounded-lg border border-gray-200 bg-white p-12 shadow-sm">
               {/* Industry Filter */}
@@ -351,7 +351,7 @@ function App() {
           type="button"
           onClick={() => setCurrentIndex(Math.min(total - 1, currentIndex + 1))}
           disabled={!canGoNext}
-          className="flex w-24 flex-shrink-0 items-center justify-center transition-colors duration-200 disabled:opacity-30 hover:enabled:bg-gray-200"
+          className="flex flex-1 items-center justify-center transition-colors duration-200 disabled:opacity-30 hover:enabled:bg-gray-200"
           aria-label="Next business"
         >
           <ChevronRight className="h-12 w-12 text-gray-600" />
